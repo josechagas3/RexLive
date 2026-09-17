@@ -150,3 +150,24 @@ Validar a Fase 3 com a live de @terra.updatess aberta e conferir o enquadramento
 ## Validação desta revisão
 
 43 testes automatizados passaram. A conferência visual desta reformulação ficou pendente: o controle do navegador foi interrompido por não conseguir identificar o endereço com segurança. A leitura de comentários de uma live real também continua pendente, pois a live não estava aberta.
+
+
+## v0.3 — Evento de comida
+
+A versão v0.2 foi validada em transmissão real pelo criador. Nesta etapa, `!comida` destaca o nome do cuidador, mostra o ganho real de saciedade, partículas de comida e corações, animação de entrada e expressão contente. Rex dormindo permanece dormindo. Quando a saciedade já está cheia, o alerta mostra o XP recebido.
+
+Recarregue o painel e a captura para carregar os arquivos novos. Para áudio, abra **♫ Som do Rex**, no canto inferior direito da janela usada na transmissão, e clique em **Ativar som nesta janela**. Na captura, passe o mouse pelo canto inferior direito para revelar esse controle. Ajuste o volume e feche o controle antes de transmitir; retire o mouse desse canto. Ative somente em uma janela para evitar duplicação e inclua o áudio dessa janela no LIVE Studio. O som sintetizado depende da ativação por clique em cada nova janela e não usa arquivos externos.
+
+Validação local: 35 testes Python e 11 JavaScript passaram; o navegador apresentou o evento no painel e na captura, e confirmou a ativação do áudio. A escuta e a captura do áudio no Studio e a validação com comentários reais ficam para a próxima transmissão.
+
+Roteiro da próxima live: enviar `!comida`, conferir nome e ganho, ouvir os dois sons curtos, enviar cuidados de pessoas diferentes e conferir ordem/ranking. Testar também `!dormir` seguido de `!comida`: Rex deve continuar dormindo. Conferir `!agua`, `!brincar`, `!carinho` e `!acordar`.
+
+O ambiente de desenvolvimento bloqueou gravações em `.git/objects`, mesmo após concessão de acesso. O backup `backups/v0.2.bundle` conserva o histórico anterior; `backups/v0.3-eventos.patch` conserva as alterações desta etapa. Tags e commit ainda precisam ser registrados pelo proprietário no terminal:
+
+```powershell
+git tag -a v0.2 fa82a4e -m "Primeiro teste real TikTok Live funcionando"
+git add .gitignore README.md interface/index.html interface/live-events.js interface/script.js interface/style.css test_live_events.cjs
+git commit -m "v0.3: evento visual de comida com som opcional"
+```
+
+Após validar a próxima live, registrar `git tag -a v0.3 -m "Eventos visuais e animações validados em live"`.

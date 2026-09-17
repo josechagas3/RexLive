@@ -46,3 +46,32 @@ test('histórico antigo continua apresentável', () => {
   const view = carePresentation({nome:'Ana',mensagem:'Rex comeu!'});
   assert.equal(view.detail,'Rex comeu!');
 });
+const {RexEventSound} = require('./interface/live-events.js');
+test('comida destaca nome e ganho limitado sem perder o título', () => {
+  const view = carePresentation({nome:'<João>',comando:'comida',efeitos:{fome:10}});
+  assert.equal(view.name,'<João>'); assert.equal(view.gain,'+10 🍖'); assert.equal(view.highlight,true);
+  assert.equal(carePresentation({nome:'Ana',comando:'comida',efeitos:{fome:0}}).gain,null);
+});
+function audioMock() {
+  const nodes=[];
+  const parameter=()=>({setValueAtTime(){},exponentialRampToValueAtTime(){},linearRampToValueAtTime(){}});
+  return {nodes,state:'suspended',currentTime:0,destination:{},async resume(){this.state='running'},
+    createGain(){return {gain:parameter(),connect(){},disconnect(){}}},
+    createOscillator(){const node={frequency:parameter(),connect(){},disconnect(){},start(){},stop(){this.stopped=true}};nodes.push(node);return node}
+  };
+}
+test('som exige ativação, toca só comida e silencia os sons pendentes', async () => {
+  const ctx=audioMock(), sound=new RexEventSound(()=>ctx);
+  assert.equal(sound.play('comida'),false); assert.equal(ctx.nodes.length,0);
+  assert.equal(await sound.enable(),true); assert.equal(sound.play('carinho'),false);
+  assert.equal(sound.play('comida'),true); assert.equal(ctx.nodes.length,2);
+  sound.mute(); assert.ok(ctx.nodes.every(n=>n.stopped)); assert.equal(sound.play('comida'),false);
+});
+test('volume zero, suspensão e navegador sem áudio não impedem os eventos', async () => {
+  const ctx=audioMock(), sound=new RexEventSound(()=>ctx); await sound.enable();
+  sound.setVolume(-1); assert.equal(sound.volume,0); assert.equal(sound.play('comida'),false);
+  sound.setVolume(20); assert.equal(sound.volume,1);
+  ctx.state='suspended'; assert.equal(sound.play('comida'),false);
+  const unavailable=new RexEventSound(()=>{throw Error('indisponível')});
+  assert.equal(await unavailable.enable(),false); assert.equal(unavailable.play('comida'),false);
+});

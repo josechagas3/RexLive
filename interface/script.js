@@ -42,11 +42,11 @@ function connection(ok) {
   updateMomentVisibility();
   if (ok) showNextAlert();
 }
-function burst() {
+function burst(action) {
   $('particles').replaceChildren();
   if (document.body.classList.contains('reduced-motion') || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   for (let i = 0; i < 12; i++) {
-    const piece = document.createElement('span'); piece.textContent = i % 3 ? '✦' : '♥';
+    const piece = document.createElement('span'); piece.textContent = action === 'comida' ? ['🍖','✨','❤️'][i % 3] : (i % 3 ? '✦' : '♥');
     piece.style.setProperty('--x', `${8 + i * 7.5}%`);
     piece.style.setProperty('--delay', `${i * .045}s`);
     $('particles').append(piece);
@@ -58,17 +58,26 @@ function showNextAlert() {
   if (!event) return;
   alertActive = true;
   const presentation = carePresentation(event);
-  $('alert-name').textContent = presentation.title;
-  $('alert-message').textContent = presentation.detail;
+  $('alert-name').replaceChildren();
+  if (presentation.highlight) {
+    const name = document.createElement('span'); name.className = 'viewer-name'; name.textContent = presentation.name;
+    $('alert-name').append('🐶 ', name, ` ${presentation.verb}`);
+  } else $('alert-name').textContent = presentation.title;
+  $('care-alert').dataset.action = presentation.action;
+  $('alert-message').textContent = presentation.gain || presentation.detail;
   $('alert-icon').textContent = presentation.icon;
   $('alert-bark').textContent = presentation.bark;
   $('care-alert').dataset.source = event.origem || '';
   document.querySelector('.habitat').dataset.reaction = presentation.action;
   $('reaction-prop').textContent = presentation.icon;
   $('reaction-prop').hidden = false;
+  // Reinicia a entrada mesmo em dois cuidados consecutivos iguais.
+  $('care-alert').hidden = true;
+  void $('care-alert').offsetWidth;
   $('care-alert').hidden = false;
   updateMomentVisibility();
-  burst();
+  burst(presentation.action);
+  eventSound.play(presentation.action);
   clearTimeout(alertTimer);
   alertTimer = setTimeout(() => {
     $('care-alert').hidden = true;
@@ -252,4 +261,21 @@ $('copy-capture').addEventListener('click', async () => {
 });
 document.querySelectorAll('[data-command]').forEach(button => button.addEventListener('click', () => act(button.dataset.command)));
 $('comando-form').addEventListener('submit', event => { event.preventDefault(); act($('comando').value); });
+const eventSound = new RexEventSound();
+const soundToggle = $('sound-toggle');
+try { eventSound.setVolume(localStorage.getItem('rex-volume') ?? .25); } catch {}
+$('sound-volume').value = Math.round(eventSound.volume * 100);
+soundToggle.addEventListener('click', async () => {
+  soundToggle.disabled = true;
+  if (eventSound.enabled) eventSound.mute();
+  else await eventSound.enable();
+  soundToggle.textContent = eventSound.enabled ? '🔊 Silenciar nesta janela' : '🔇 Ativar som nesta janela';
+  soundToggle.setAttribute('aria-pressed', String(eventSound.enabled));
+  $('sound-feedback').textContent = eventSound.enabled ? 'Som ativado. Capture o áudio desta janela no Studio.' : 'Som desligado. Clique para ativar nesta janela.';
+  soundToggle.disabled = false;
+});
+$('sound-volume').addEventListener('input', () => {
+  eventSound.setVolume(Number($('sound-volume').value) / 100);
+  try { localStorage.setItem('rex-volume', String(eventSound.volume)); } catch {}
+});
 refresh();

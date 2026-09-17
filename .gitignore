@@ -2,3 +2,6 @@
 __pycache__/
 dados/*.db
 dados/*.db-*
+
+backups/*.bundle
+backups/*.patch
