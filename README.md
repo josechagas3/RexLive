@@ -4,6 +4,8 @@ Fases 1 a 3: cachorro virtual, tela vertical e integração de leitura de coment
 
 ## Iniciar no Windows
 
+Nesta revisão, a versão atualizada foi iniciada na porta **8768** para preservar uma instância anterior em 8765: painel em **http://127.0.0.1:8768/** e captura em **http://127.0.0.1:8768/?captura=1**. Para repetir essa porta, execute `.venv\Scripts\python.exe app.py --port 8768` dentro da pasta RexLive. Os passos abaixo usam a porta padrão, 8765, quando estiver livre.
+
 1. Abra `iniciar.bat` e mantenha a janela aberta.
 2. No navegador, acesse **http://127.0.0.1:8765**.
 3. Informe um nome e use os botões ou digite um comando.
@@ -38,7 +40,7 @@ O perfil padrão é **@terra.updatess**. A biblioteca já está instalada no amb
 1. Abra a sua live no TikTok.
 2. No painel do Rex, confira **@terra.updatess** em **Conectar sua live**.
 3. Clique em **Conectar TikTok** e aguarde o status **Conectado**.
-4. Peça a um espectador para comentar exatamente `comida`, `água`, `brincar`, `dormir` ou `carinho`. Também são aceitos `agua`, letras maiúsculas e o prefixo `!`, como `!comida`.
+4. Peça a um espectador para comentar exatamente `comida`, `água`, `brincar`, `dormir`, `acordar` ou `carinho`. Também são aceitos `agua`, letras maiúsculas e o prefixo `!`, como `!comida`.
 5. Confira o contador de cuidados, o agradecimento e o ranking. Use **Desconectar** para voltar aos botões do simulador.
 
 Não é necessário digitar senha ou cookies no Rex. A ponte apenas recebe eventos: não publica comentários e não envia mensagens para ninguém. Presentes ainda não têm efeito no jogo.
@@ -49,7 +51,7 @@ Enquanto a conexão está ativa ou sendo tentada, o simulador fica bloqueado. O 
 
 Cada espectador pode gerar um cuidado aceito a cada 5 segundos. Outros comentários são ignorados. Reenvios com o mesmo ID não duplicam os pontos; até 10 mil IDs de cuidados aceitos são guardados no SQLite. Os eventos antigos enviados ao entrar na sala são descartados. Uma queda de conexão pode perder comentários que o serviço não reenviar.
 
-Na live, `dormir` **só coloca Rex para dormir**: repetições não o acordam e não rendem XP extra. Comida, água e brincar podem acordá-lo. No simulador, o botão continua alternando dormir/acordar.
+`dormir` só coloca Rex para dormir; repetições não o acordam nem rendem XP extra. Somente `!acordar` o desperta, garantindo pelo menos 15 de energia. Comida, água e carinho continuam funcionando durante o sono, sem acordá-lo. Brincar exige Rex acordado. No painel, o botão alterna entre enviar dormir e acordar.
 
 **Limite atual:** integração implementada e testada localmente com transporte simulado e objetos reais da biblioteca. O recebimento de comentários de uma transmissão real ainda não foi validado, pois a live não estava aberta.
 
@@ -59,17 +61,28 @@ A [TikTokLive](https://github.com/isaackogan/TikTokLive) é uma biblioteca não 
 
 | Comando | Efeito |
 |---|---|
-| comida | +10 saciedade, acorda Rex |
-| água / agua | +5 energia e +3 vida, acorda Rex |
+| comida | +10 saciedade |
+| água / agua | +5 energia e +3 vida |
 | brincar | +15 felicidade, −10 energia, −3 saciedade; exige 10 energia |
-| dormir | Alterna entre dormir e acordar |
+| dormir | Coloca Rex para dormir |
+| acordar | Acorda Rex e garante pelo menos 15 de energia |
 | carinho | +10 felicidade, sem interromper o sono |
 
-Cada ação válida rende 10 XP para Rex e 10 pontos para o cuidador, mesmo se o atributo já estiver cheio. Ganhos param em 100. O nome identifica o cuidador apenas no simulador; não representa uma identidade autenticada do TikTok.
+Cada cuidado aplicado rende 10 XP para Rex e 10 pontos para o cuidador, mesmo se o atributo já estiver cheio. Ganhos param em 100. O nome identifica o cuidador apenas no simulador; não representa uma identidade autenticada do TikTok.
 
-Por minuto com o servidor ativo: −1,5 saciedade, −0,7 felicidade e −1 energia; dormindo, a energia sobe 8 por minuto. A vida perde 2 por minuto com saciedade abaixo de 20, e recupera 0,5 com saciedade acima de 60 e energia acima de 30. Não há morte permanente. O tempo desligado não gera perdas; suspensões longas do computador não são integralmente contabilizadas.
+Por minuto com o servidor ativo: −1,5 saciedade, −0,7 felicidade e −0,25 energia; dormindo, a energia sobe 8 por minuto. A vida perde 2 por minuto com saciedade abaixo de 20, e recupera 0,5 com saciedade acima de 60 e energia acima de 30. Não há morte permanente. O tempo desligado não gera perdas; suspensões longas do computador não são integralmente contabilizadas.
 
 Prioridade dos estados: sono, comemoração de nível (10 segundos), fome abaixo de 30, tristeza se felicidade ou vida estiver abaixo de 30, felicidade após interação (7 segundos), normal.
+
+## Tela de live e momentos de crescimento
+
+A captura usa uma cena vertical de 1080 × 1920 com Rex em destaque, três status principais, pódio dos cuidadores e comandos grandes. A felicidade permanece disponível no painel do criador. Os alertas nomeiam quem cuidou do Rex, mostram o ganho real (limitado a 100%) e incluem uma reação animada por ação. O texto “AU AU!” é visual; não há áudio.
+
+Ao zerar a energia, Rex dorme automaticamente. O sono recupera 8 pontos por minuto, mas ele aguarda um `!acordar` da comunidade, mesmo ao chegar a 100%. Não é necessário esperar: acordar garante um mínimo de 15 pontos. Repetir acordar enquanto ele já está acordado não gera XP.
+
+A cada 30 minutos, um aviso de 20 segundos mostra quanto XP falta para o próximo nível. O relógio começa ao iniciar o servidor no simulador e reinicia ao conectar uma nova sessão TikTok; tentativas automáticas de reconexão mantêm o mesmo relógio. Reiniciar o servidor reinicia o relógio. O XP e o nível mostrados são reais e atualizados durante o aviso.
+
+Use **Testar aviso de crescimento** na seção Preparar a transmissão para exibir uma prévia, sincronizada nas telas abertas, sem alterar XP ou o horário do próximo aviso. Agradecimentos e comemorações de nível têm prioridade visual. Se ocuparem toda a janela de 20 segundos, o aviso periódico não interrompe os cuidados.
 
 ## Captura
 
@@ -103,6 +116,8 @@ RexLive/
   requirements-tiktok.txt Versão da biblioteca
   test_rex.py     Testes automatizados
   test_tiktok.py  Testes de integração sem rede
+  momentos.py     Relógio dos avisos de crescimento
+  test_live_rules.py Testes de energia e avisos
   test_live_events.cjs Testes da fila de apresentação (Node.js)
   interface/
     index.html    Tela e desenho SVG do Rex
@@ -118,11 +133,11 @@ O desenho está em SVG dentro do HTML; PNGs e uma pasta de imagens não são nec
 ## Testar
 
 ```console
-.venv\Scripts\python.exe -m unittest -v test_rex test_tiktok
+.venv\Scripts\python.exe -m unittest -v test_rex test_tiktok test_live_rules
 node --test test_live_events.cjs
 ```
 
-São 24 testes Python e 5 JavaScript. Usam bancos temporários e transporte simulado, sem acessar o TikTok ou alterar os dados reais. Cobrem regras do jogo, persistência, migração do banco antigo, API, identificação, intervalo entre cuidados, duplicatas após reiniciar, cancelamento, fim de live e tentativas limitadas. Dois testes verificam o cliente e o formato de evento da biblioteca instalada. Os testes JavaScript verificam a fila de apresentação. Node.js é necessário apenas para os testes JavaScript.
+São 35 testes Python e 8 JavaScript. Usam bancos temporários e transporte simulado, sem acessar o TikTok ou alterar os dados reais. Cobrem regras do jogo, persistência, migração do banco antigo, API, identificação, intervalo entre cuidados, duplicatas após reiniciar, cancelamento, fim de live e tentativas limitadas. Dois testes verificam o cliente e o formato de evento da biblioteca instalada. Os novos testes verificam sono automático, despertar, ganho real dos cuidados e os limites de tempo dos avisos. Os testes JavaScript verificam a fila e os textos de apresentação. Node.js é necessário apenas para os testes JavaScript.
 
 Compatibilidade: o adaptador assíncrono corrige o fechamento do cliente no TikTokLive 7.0.1, evitando executar um segundo loop dentro do loop ativo. Antes de atualizar a dependência, rode os testes e valide uma live de teste.
 
@@ -131,3 +146,7 @@ Para fazer backup, encerre o servidor e copie `dados/rex.db`. O servidor só esc
 ## Próximas etapas
 
 Validar a Fase 3 com a live de @terra.updatess aberta e conferir o enquadramento no software de transmissão. Depois iniciar a Fase 4: presentes, evolução especial, itens e temporadas. Presentes ainda não estão implementados.
+
+## Validação desta revisão
+
+43 testes automatizados passaram. A conferência visual desta reformulação ficou pendente: o controle do navegador foi interrompido por não conseguir identificar o endereço com segurança. A leitura de comentários de uma live real também continua pendente, pois a live não estava aberta.

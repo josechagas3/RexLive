@@ -9,7 +9,7 @@ from collections import OrderedDict
 from cachorro import comando_normalizado
 from config import TIKTOK_PERFIL, TIKTOK_COOLDOWN
 
-COMANDOS = {'comida', 'agua', 'brincar', 'dormir', 'carinho'}
+COMANDOS = {'comida', 'agua', 'brincar', 'dormir', 'acordar', 'carinho'}
 
 
 def normalizar_perfil(perfil):
@@ -90,6 +90,7 @@ class TikTokBridge:
             self.estado, self.mensagem = 'conectando', f'Procurando a live de @{perfil}…'
             self.recebidos = self.aplicados = self.ignorados = 0
             self.ultimo = ''
+            self.sessao_iniciada = False
             self.thread = threading.Thread(target=self._worker, name='rex-tiktok', daemon=True)
             self.thread.start()
 
@@ -177,6 +178,10 @@ class TikTokBridge:
 
                 async def on_connect(event, token=token):
                     if self.attempt_token is token:
+                        if not self.sessao_iniciada:
+                            with self.jogo.lock:
+                                self.jogo.momentos.reiniciar()
+                            self.sessao_iniciada = True
                         self.atualizar('conectado', f'Lendo comentários de @{self.perfil}.')
 
                 async def on_comment(event, token=token, client=client):

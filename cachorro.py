@@ -27,13 +27,15 @@ class Cachorro:
     def limitar(self):
         for key in ('fome', 'vida', 'felicidade', 'energia'):
             setattr(self, key, max(0, min(100, getattr(self, key))))
+        if self.energia <= 0:
+            self.dormindo = True
 
     def passar_tempo(self, segundos):
         # Taxas por minuto; chamadas frequentes mantêm transições suaves.
         minutos = max(0, segundos) / 60
         self.fome -= 1.5 * minutos
         self.felicidade -= .7 * minutos
-        self.energia += (8 if self.dormindo else -1) * minutos
+        self.energia += (8 if self.dormindo else -.25) * minutos
         if self.fome < 20:
             self.vida -= 2 * minutos
         elif self.fome > 60 and self.energia > 30:
@@ -41,20 +43,20 @@ class Cachorro:
         self.limitar()
 
     def agir(self, comando, agora):
-        comando = comando_normalizado(comando)
-        if comando not in ('comida', 'agua', 'brincar', 'dormir', 'carinho'):
-            raise ValueError('Use comida, água, brincar, dormir ou carinho.')
+        comando = comando_normalizado(comando).removeprefix('!')
+        if comando not in ('comida', 'agua', 'brincar', 'dormir', 'acordar', 'carinho'):
+            raise ValueError('Use !comida, !água, !brincar, !dormir, !acordar ou !carinho.')
         anterior = self.nivel
         if comando == 'comida':
-            self.dormindo = False
             self.fome += 10
             mensagem = 'Rex comeu! +10 de saciedade'
         elif comando == 'agua':
-            self.dormindo = False
             self.energia += 5
             self.vida += 3
             mensagem = 'Água fresquinha! +5 de energia e +3 de vida'
         elif comando == 'brincar':
+            if self.dormindo:
+                raise ValueError('Rex está dormindo. A comunidade pode usar !acordar!')
             if self.energia < 10:
                 raise ValueError('Rex está cansado. Deixe ele dormir um pouco!')
             self.dormindo = False
@@ -63,8 +65,16 @@ class Cachorro:
             self.fome -= 3
             mensagem = 'Hora da bolinha! +15 de felicidade'
         elif comando == 'dormir':
-            self.dormindo = not self.dormindo
-            mensagem = 'Bons sonhos! Rex está recuperando energia.' if self.dormindo else 'Bom dia! Rex acordou.'
+            if self.dormindo:
+                raise ValueError('Rex já está dormindo. Use !acordar para chamá-lo.')
+            self.dormindo = True
+            mensagem = 'Bons sonhos! Rex está recuperando energia. Use !acordar!'
+        elif comando == 'acordar':
+            if not self.dormindo:
+                raise ValueError('Rex já está acordado. Que tal !brincar?')
+            self.dormindo = False
+            self.energia = max(15, self.energia)
+            mensagem = 'A comunidade acordou o Rex! AU AU!'
         else:
             self.felicidade += 10
             mensagem = 'Rex ganhou carinho! +10 de felicidade'

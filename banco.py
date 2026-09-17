@@ -22,6 +22,10 @@ class Banco:
             colunas = {row[1] for row in db.execute('PRAGMA table_info(eventos)')}
             if 'origem' not in colunas:
                 db.execute("ALTER TABLE eventos ADD COLUMN origem TEXT NOT NULL DEFAULT 'simulador'")
+            if 'comando' not in colunas:
+                db.execute("ALTER TABLE eventos ADD COLUMN comando TEXT NOT NULL DEFAULT ''")
+            if 'efeitos' not in colunas:
+                db.execute("ALTER TABLE eventos ADD COLUMN efeitos TEXT NOT NULL DEFAULT '{}'")
 
     @contextmanager
     def conectar(self):
@@ -37,7 +41,7 @@ class Banco:
             row = db.execute('SELECT dados FROM cachorro WHERE id=1').fetchone()
         return Cachorro(**json.loads(row[0])) if row else Cachorro()
 
-    def salvar(self, rex, evento=None, *, identidade=None, origem='simulador', recebido=None):
+    def salvar(self, rex, evento=None, *, identidade=None, origem='simulador', recebido=None, comando='', efeitos=None):
         # Estado, crédito do cuidador e evento entram na mesma transação.
         with self.conectar() as db:
             if recebido:
@@ -48,7 +52,7 @@ class Banco:
                 nome, mensagem, instante = evento
                 chave = identidade or 'sim:' + nome
                 db.execute('INSERT INTO cuidadores_v2 VALUES (?, ?, ?, 10) ON CONFLICT(identidade) DO UPDATE SET pontos=pontos+10, nome=excluded.nome', (chave, nome, origem))
-                db.execute('INSERT INTO eventos(nome, mensagem, instante, origem) VALUES (?, ?, ?, ?)', (*evento, origem))
+                db.execute('INSERT INTO eventos(nome, mensagem, instante, origem, comando, efeitos) VALUES (?, ?, ?, ?, ?, ?)', (*evento, origem, comando, json.dumps(efeitos or {})))
                 db.execute('DELETE FROM eventos WHERE id NOT IN (SELECT id FROM eventos ORDER BY id DESC LIMIT 100)')
                 db.execute('DELETE FROM recebidos WHERE chave NOT IN (SELECT chave FROM recebidos ORDER BY instante DESC LIMIT 10000)')
         return True
@@ -56,5 +60,5 @@ class Banco:
     def comunidade(self):
         with self.conectar() as db:
             ranking = [dict(nome=n, pontos=p, origem=o) for n, p, o in db.execute('SELECT nome, pontos, origem FROM cuidadores_v2 ORDER BY pontos DESC, nome, identidade LIMIT 5')]
-            eventos = [dict(id=i, nome=n, mensagem=m, instante=t, origem=o) for i, n, m, t, o in db.execute('SELECT id, nome, mensagem, instante, origem FROM eventos ORDER BY id DESC LIMIT 100')]
+            eventos = [dict(id=i, nome=n, mensagem=m, instante=t, origem=o, comando=c, efeitos=json.loads(e)) for i, n, m, t, o, c, e in db.execute('SELECT id, nome, mensagem, instante, origem, comando, efeitos FROM eventos ORDER BY id DESC LIMIT 100')]
         return dict(ranking=ranking, eventos=eventos)

@@ -1,6 +1,6 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {LiveEventQueue} = require('./interface/live-events.js');
+const {LiveEventQueue, carePresentation} = require('./interface/live-events.js');
 const event = id => ({id, nome:`Pessoa ${id}`, mensagem:'Carinho!'});
 
 test('abrir a tela não repete cuidados antigos', () => {
@@ -31,4 +31,18 @@ test('reconexão após perda de histórico mostra resumo da lacuna', () => {
   q.ingest([event(110), event(109)]);
   assert.match(q.next().mensagem, /^103 cuidados/);
   assert.equal(q.next().id, 109); assert.equal(q.next().id, 110);
+});
+test('alerta nomeia o cuidado e mostra apenas o ganho real', () => {
+  const view = carePresentation({nome:'João', comando:'comida', efeitos:{fome:4,energia:0}});
+  assert.equal(view.title,'João alimentou o Rex!');
+  assert.equal(view.detail,'+4 comida');
+  assert.equal(view.action,'comida');
+});
+test('atributos cheios mostram XP sem inventar ganho de comida', () => {
+  const view = carePresentation({nome:'Ana',comando:'comida',efeitos:{fome:0}});
+  assert.equal(view.detail,'+10 XP de cuidado');
+});
+test('histórico antigo continua apresentável', () => {
+  const view = carePresentation({nome:'Ana',mensagem:'Rex comeu!'});
+  assert.equal(view.detail,'Rex comeu!');
 });

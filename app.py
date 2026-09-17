@@ -2,19 +2,34 @@
 import argparse
 import copy
 import json
+import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 from pathlib import Path
 from banco import Banco
+from cachorro import comando_normalizado
+from momentos import MomentosLive
 from config import BASE_DIR, DB_PATH, HOST, PORT, TICK_SECONDS
+
+
+class ServidorLocal(ThreadingHTTPServer):
+    # No Windows, impede dois processos de servir respostas na mesma porta.
+    allow_reuse_address = False
+
+    def server_bind(self):
+        if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 class Jogo:
     def __init__(self, caminho=DB_PATH):
         self.banco = Banco(caminho)
         self.rex = self.banco.carregar()
+        self.rex.limitar()
+        self.momentos = MomentosLive()
         self.lock = threading.RLock()
         self.ultimo = time.monotonic()
         self.rex.feliz_ate = self.rex.celebrando_ate = 0
@@ -31,7 +46,7 @@ class Jogo:
 
     def snapshot(self):
         with self.lock:
-            return dict(cachorro=self.rex.publico(time.time()), **self.banco.comunidade())
+            return dict(cachorro=self.rex.publico(time.time()), momento=self.momentos.snapshot(self.rex), **self.banco.comunidade())
 
     def interagir(self, nome, comando, *, identidade=None, origem='simulador', recebido=None):
         if not isinstance(nome, str) or not 1 <= len(nome.strip()) <= 32 or any(ord(c) < 32 for c in nome):
@@ -39,12 +54,14 @@ class Jogo:
         if not isinstance(comando, str) or len(comando) > 30:
             raise ValueError('Comando inválido.')
         with self.lock:
+            comando = comando_normalizado(comando).removeprefix('!')
             if origem == 'tiktok' and comando == 'dormir' and self.rex.dormindo:
                 return dict(self.snapshot(), aplicada=False, motivo='Rex já está dormindo.')
             novo = copy.deepcopy(self.rex)
             agora = time.time()
             mensagem = novo.agir(comando, agora)
-            aplicada = self.banco.salvar(novo, (nome.strip(), mensagem, agora), identidade=identidade, origem=origem, recebido=recebido)
+            efeitos = {key: round(getattr(novo, key) - getattr(self.rex, key), 1) for key in ('fome', 'vida', 'energia', 'felicidade')}
+            aplicada = self.banco.salvar(novo, (nome.strip(), mensagem, agora), identidade=identidade, origem=origem, recebido=recebido, comando=comando, efeitos=efeitos)
             if aplicada:
                 self.rex = novo
             return dict(self.snapshot(), aplicada=aplicada)
@@ -91,7 +108,7 @@ def criar_servidor(jogo, porta=PORT, tiktok=None):
         def do_POST(self):
             if not self.local():
                 return self.responder(403, {'erro': 'Acesso apenas local.'})
-            if self.path not in ('/api/acao', '/api/tiktok/conectar', '/api/tiktok/desconectar'):
+            if self.path not in ('/api/acao', '/api/tiktok/conectar', '/api/tiktok/desconectar', '/api/momento/previa'):
                 return self.responder(404, {'erro': 'Rota não encontrada.'})
             try:
                 tamanho = int(self.headers.get('Content-Length', '0'))
@@ -100,7 +117,11 @@ def criar_servidor(jogo, porta=PORT, tiktok=None):
                 dados = json.loads(self.rfile.read(tamanho))
                 if not isinstance(dados, dict):
                     raise ValueError('Requisição inválida.')
-                if self.path == '/api/tiktok/conectar':
+                if self.path == '/api/momento/previa':
+                    with jogo.lock:
+                        jogo.momentos.previa()
+                    resultado = estado()
+                elif self.path == '/api/tiktok/conectar':
                     tiktok.conectar(dados.get('perfil'))
                     resultado = estado()
                 elif self.path == '/api/tiktok/desconectar':
@@ -111,7 +132,7 @@ def criar_servidor(jogo, porta=PORT, tiktok=None):
             except (ValueError, UnicodeDecodeError) as error:
                 return self.responder(400, {'erro': str(error)})
             self.responder(200, resultado)
-    servidor = ThreadingHTTPServer((HOST, porta), Handler)
+    servidor = ServidorLocal((HOST, porta), Handler)
     servidor.tiktok = tiktok
     return servidor
 

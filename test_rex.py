@@ -32,10 +32,10 @@ class RegrasTest(unittest.TestCase):
         self.assertEqual(rex.energia,38)
         self.assertEqual(rex.fome,98.5)
         self.assertEqual(rex.estado(101),'dormindo')
-        rex.agir('dormir',102)
+        rex.agir('acordar',102)
         self.assertFalse(rex.dormindo)
         rex.passar_tempo(60)
-        self.assertEqual(rex.energia,37)
+        self.assertEqual(rex.energia,37.75)
 
     def test_emocoes_e_nivel(self):
         rex=Cachorro()
@@ -101,11 +101,17 @@ class IntegracaoTest(unittest.TestCase):
         worker=threading.Thread(target=server.serve_forever,daemon=True);worker.start()
         base=f'http://127.0.0.1:{server.server_port}'
         try:
+            with self.assertRaises(OSError):
+                criar_servidor(self.jogo, server.server_port)
             with urlopen(base) as r:self.assertIn('Rex'.encode(),r.read())
             with urlopen(base+'/live-events.js') as r:
                 self.assertIn(b'LiveEventQueue',r.read())
             req=Request(base+'/api/acao',data=json.dumps(dict(nome='Maria',comando='água')).encode(),headers={'Content-Type':'application/json'})
             with urlopen(req) as r:self.assertEqual(json.load(r)['ranking'][0]['nome'],'Maria')
+            xp = self.jogo.rex.experiencia
+            req=Request(base+'/api/momento/previa',data=b'{}',headers={'Content-Type':'application/json'})
+            with urlopen(req) as r:self.assertTrue(json.load(r)['momento']['ativo'])
+            self.assertEqual(self.jogo.rex.experiencia, xp)
             req=Request(base+'/api/acao',data=b'{}',headers={'Origin':'https://example.com'})
             with self.assertRaises(HTTPError) as e:urlopen(req)
             self.assertEqual(e.exception.code,403)

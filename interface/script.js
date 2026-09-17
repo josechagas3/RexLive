@@ -6,17 +6,18 @@ function fitCapture() { document.documentElement.style.setProperty('--capture-sc
 if (capture) { fitCapture(); addEventListener('resize', fitCapture); }
 const stats = [['fome','🍖','Saciedade','#dcb260'],['vida','❤️','Vida','#d98980'],['felicidade','😊','Felicidade','#9ab879'],['energia','⚡','Energia','#86b9b5']];
 for (const [key, icon, title, color] of stats) {
-  const node = document.createElement('div'); node.className = 'stat';
+  const node = document.createElement('div'); node.className = 'stat'; node.dataset.stat = key;
   node.innerHTML = `<div class="stat-heading"><span>${icon} ${title}</span><strong id="value-${key}">100%</strong></div><div class="track" role="progressbar" aria-label="${title}" aria-valuemin="0" aria-valuemax="100" id="track-${key}"><div id="bar-${key}" style="background:${color}"></div></div>`;
   $('stats').append(node);
 }
 const moods = {normal:'De boa por aqui',fome:'Uma fominha…',feliz:'Feliz da vida!',dormindo:'Recarregando os sonhos',comemorando:'Subiu de nível! 🎉',triste:'Preciso de carinho'};
-const phrases = {normal:'Oi! Que bom ter você aqui. 🐾',fome:'Tem um petisco por aí? 🦴',feliz:'Você fez meu dia! 💛',dormindo:'Só mais cinco minutinhos… 💤',comemorando:'Crescemos juntos! Obrigado! 🎉',triste:'Fica um pouquinho comigo? 💛'};
+const phrases = {normal:'Quem vai cuidar de mim? 🐾',fome:'Uma ajudinha? Digite !comida 🦴',feliz:'Vocês fazem meu dia! 💛',dormindo:'Zzz… Me chamem com !acordar 💤',comemorando:'Crescemos juntos! Obrigado! 🎉',triste:'Um !carinho muda meu dia 💛'};
 const queue = new LiveEventQueue();
 let busy = false, connected = false, alertActive = false, alertTimer;
 let level = null, celebrationTimer, revision = 0, renderedRevision = 0;
 let rankingKey = '', eventsKey = '';
 let tiktokBusy = false, tiktokActive = false, tiktokAvailable = false, perfilLoaded = false;
+let currentMoment = null, previewBusy = false;
 try { $('nome').value = localStorage.getItem('rex-cuidador') || 'João'; } catch {}
 function applyMotion(reduced) {
   document.body.classList.toggle('reduced-motion', reduced);
@@ -38,6 +39,7 @@ function connection(ok) {
     $('live-badge').textContent = 'CONEXÃO INTERROMPIDA';
     $('capture-mode').textContent = 'Aguardando o servidor do Rex…';
   }
+  updateMomentVisibility();
   if (ok) showNextAlert();
 }
 function burst() {
@@ -55,14 +57,25 @@ function showNextAlert() {
   const event = queue.next();
   if (!event) return;
   alertActive = true;
-  $('alert-name').textContent = event.agrupado ? event.nome : `Obrigado, ${event.nome}!${event.origem === 'simulador' ? ' (teste)' : ''}`;
-  $('alert-message').textContent = event.mensagem;
+  const presentation = carePresentation(event);
+  $('alert-name').textContent = presentation.title;
+  $('alert-message').textContent = presentation.detail;
+  $('alert-icon').textContent = presentation.icon;
+  $('alert-bark').textContent = presentation.bark;
+  $('care-alert').dataset.source = event.origem || '';
+  document.querySelector('.habitat').dataset.reaction = presentation.action;
+  $('reaction-prop').textContent = presentation.icon;
+  $('reaction-prop').hidden = false;
   $('care-alert').hidden = false;
+  updateMomentVisibility();
   burst();
   clearTimeout(alertTimer);
   alertTimer = setTimeout(() => {
     $('care-alert').hidden = true;
+    $('reaction-prop').hidden = true;
+    delete document.querySelector('.habitat').dataset.reaction;
     alertActive = false;
+    updateMomentVisibility();
     showNextAlert();
   }, queue.pending.length > 3 ? 2200 : 4200);
 }
@@ -73,7 +86,7 @@ function renderRanking(ranking) {
   ranking.forEach((item, i) => {
     const li = document.createElement('li');
     const name = item.nome + (item.origem === 'simulador' ? ' (teste)' : ' · TikTok');
-    for (const [tag, cls, text] of [['span','rank',String(i+1).padStart(2,'0')],['span','avatar',Array.from(item.nome)[0].toUpperCase()],['span','caregiver-name',name],['strong','',`${item.pontos} XP`]]) {
+    for (const [tag, cls, text] of [['span','rank',['🥇','🥈','🥉'][i] || String(i+1).padStart(2,'0')],['span','avatar',Array.from(item.nome)[0].toUpperCase()],['span','caregiver-name',name],['strong','',`${item.pontos} XP`]]) {
       const el = document.createElement(tag); el.className = cls; el.textContent = text; li.append(el);
     }
     $('ranking').append(li);
@@ -86,12 +99,18 @@ function render(data, requestRevision) {
   renderedRevision = requestRevision;
   renderTikTok(data.tiktok);
   const r = data.cachorro;
+  currentMoment = data.momento || null;
+  renderMoment();
   $('nivel').textContent = `NÍVEL ${r.nivel}`;
   $('rex').className = `dog ${r.estado}`;
   $('rex').setAttribute('aria-label', `Rex: ${moods[r.estado]}`);
   $('humor').textContent = moods[r.estado];
   $('fala').textContent = phrases[r.estado];
   $('sleep-label').textContent = r.dormindo ? 'Acordar' : 'Dormir';
+  $('sleep-action').dataset.command = r.dormindo ? 'acordar' : 'dormir';
+  $('command-prompt').textContent = r.dormindo ? 'REX DORMIU. A COMUNIDADE PODE CHAMÁ-LO!' : 'CUIDE DO REX. DIGITE NO CHAT:';
+  $('primary-command').textContent = r.dormindo ? '!acordar' : '!comida';
+  $('secondary-command').textContent = r.dormindo ? '!carinho' : '!brincar';
   for (const [key] of stats) {
     $('value-'+key).textContent = `${Math.round(r[key])}%`;
     $('bar-'+key).style.width = `${r[key]}%`;
@@ -99,15 +118,16 @@ function render(data, requestRevision) {
   }
   $('xp-text').textContent = `${r.xp_nivel} / ${r.xp_meta} XP`;
   $('xp-bar').style.width = `${r.xp_nivel}%`;
-  $('dica').textContent = r.dormindo ? 'Enquanto dorme, Rex recupera 8 de energia por minuto. Clique em Acordar quando quiser.' : 'Brincar gasta 10 de energia e 3 de saciedade. Dormir ajuda o Rex a se recuperar.';
+  $('dica').textContent = r.dormindo ? 'Rex recupera 8 de energia por minuto. Use !acordar: ele volta com pelo menos 15 de energia.' : 'A energia cai só 0,25 por minuto. Ao zerar, Rex dorme; a comunidade o chama com !acordar.';
   if (level !== null && r.nivel > level) {
     $('celebracao').textContent = `🎉 Juntos, chegamos ao nível ${r.nivel}!`;
     $('celebracao').hidden = false;
     clearTimeout(celebrationTimer);
-    celebrationTimer = setTimeout(() => { $('celebracao').hidden = true; }, 7000);
+    celebrationTimer = setTimeout(() => { $('celebracao').hidden = true; updateMomentVisibility(); }, 7000);
     burst();
   }
   level = r.nivel;
+  updateMomentVisibility();
   queue.ingest(data.eventos);
   renderRanking(data.ranking);
   const recent = data.eventos.slice(0, 3);
@@ -122,6 +142,29 @@ function render(data, requestRevision) {
     }
   }
 }
+function updateMomentVisibility() {
+  $('growth-moment').hidden = !connected || !currentMoment?.ativo || alertActive || !$('celebracao').hidden;
+}
+function renderMoment() {
+  if (!currentMoment) return;
+  $('growth-xp').textContent = `${currentMoment.xp_faltante} XP`;
+  $('growth-target').textContent = `para o nível ${currentMoment.nivel_alvo}`;
+  $('growth-care').textContent = `${currentMoment.cuidados_faltantes} cuidado${currentMoment.cuidados_faltantes === 1 ? '' : 's'} pode${currentMoment.cuidados_faltantes === 1 ? '' : 'm'} fazer a diferença!`;
+  const seconds = currentMoment.proximo_em;
+  $('next-growth').textContent = `Próximo aviso em ${String(Math.floor(seconds / 60)).padStart(2,'0')}:${String(seconds % 60).padStart(2,'0')}`;
+  updateMomentVisibility();
+}
+$('preview-growth').addEventListener('click', async () => {
+  if (previewBusy) return;
+  previewBusy = true; $('preview-growth').disabled = true;
+  try {
+    const current = ++revision;
+    render(await request('/api/momento/previa', {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'}), current);
+    connection(true);
+    $('growth-feedback').textContent = 'Prévia ativada por 20 segundos na captura. Os cuidados recebidos têm prioridade.';
+  } catch { $('growth-feedback').textContent = 'Não foi possível abrir a prévia. Confira o servidor.'; }
+  finally { previewBusy = false; $('preview-growth').disabled = false; }
+});
 async function request(url, options = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
