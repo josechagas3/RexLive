@@ -8,6 +8,7 @@ import unicodedata
 from collections import OrderedDict
 from cachorro import comando_normalizado
 from config import TIKTOK_PERFIL, TIKTOK_COOLDOWN
+from presentes import efeitos_presente
 
 COMANDOS = {'comida', 'agua', 'brincar', 'dormir', 'acordar', 'carinho'}
 
@@ -35,14 +36,14 @@ def nome_seguro(nome, fallback):
 
 def carregar_cliente(perfil):
     from TikTokLive import TikTokLiveClient
-    from TikTokLive.events import ConnectEvent, CommentEvent, DisconnectEvent, LiveEndEvent
+    from TikTokLive.events import ConnectEvent, CommentEvent, DisconnectEvent, LiveEndEvent, GiftEvent
     class ClienteAssincrono(TikTokLiveClient):
         async def close(self):
             # TikTokLive 7.0.1 chama run_until_complete em close(), apesar de
             # ser async. A ponte já cancela/drena suas tarefas com asyncio.run.
             await self.web.close()
     client = ClienteAssincrono(unique_id=perfil, web_kwargs={'httpx_kwargs': {'timeout': 15}})
-    return client, (ConnectEvent, CommentEvent, DisconnectEvent, LiveEndEvent)
+    return client, (ConnectEvent, CommentEvent, DisconnectEvent, LiveEndEvent, GiftEvent)
 
 
 class TikTokBridge:
@@ -63,7 +64,9 @@ class TikTokBridge:
         self.recebidos = self.aplicados = self.ignorados = 0
         self.ultimo = ''
         self.cooldowns = OrderedDict()
+        self.cooldowns_presentes = OrderedDict()
         self.vistos = OrderedDict()
+        self.vistos_presentes = OrderedDict()
         self.attempt_token = None
 
     def snapshot(self):
@@ -150,6 +153,47 @@ class TikTokBridge:
             self.ultimo = f'{nome}: {comando}'
             return True
 
+    def processar_presente(self, *, gift_id, nome_presente, user_id, nome, msg_id, room_id):
+        with self.lock:
+            if self.stop.is_set() or self.estado != 'conectado':
+                return False
+            if not efeitos_presente(nome_presente):
+                self.ignorados += 1
+                return False
+            self.recebidos += 1
+            if not user_id or not gift_id or not room_id:
+                self.ignorados += 1
+                return False
+            chave = f'{room_id}:gift:{gift_id}'
+            if chave in self.vistos_presentes:
+                self.ignorados += 1
+                return False
+            self.vistos_presentes[chave] = True
+            if len(self.vistos_presentes) > 10000:
+                self.vistos_presentes.popitem(last=False)
+            identidade = 'tiktok:' + str(user_id)
+            agora = self.clock()
+            if agora - self.cooldowns_presentes.get(identidade, float('-inf')) < TIKTOK_COOLDOWN:
+                self.ignorados += 1
+                return False
+            nome = nome_seguro(nome, 'Cuidador TikTok')
+            try:
+                resultado = self.jogo.interagir_presente(nome, gift_id, nome_presente, identidade=identidade, origem='tiktok', recebido=chave)
+            except ValueError as error:
+                self.ultimo = str(error)
+                self.ignorados += 1
+                return False
+            if not resultado['aplicada']:
+                self.ignorados += 1
+                return False
+            self.cooldowns_presentes[identidade] = agora
+            self.cooldowns_presentes.move_to_end(identidade)
+            if len(self.cooldowns_presentes) > 5000:
+                self.cooldowns_presentes.popitem(last=False)
+            self.aplicados += 1
+            self.ultimo = f'{nome}: presente {nome_presente}'
+            return True
+
     def _worker(self):
         try:
             asyncio.run(self._run())
@@ -174,7 +218,9 @@ class TikTokBridge:
             token = object()
             self.attempt_token = token
             try:
-                client, (Connect, Comment, Disconnect, LiveEnd) = self.factory(self.perfil)
+                client, events = self.factory(self.perfil)
+                Connect, Comment, Disconnect, LiveEnd = events[:4]
+                Gift = events[4] if len(events) > 4 else None
 
                 async def on_connect(event, token=token):
                     if self.attempt_token is token:
@@ -182,7 +228,7 @@ class TikTokBridge:
                             with self.jogo.lock:
                                 self.jogo.momentos.reiniciar()
                             self.sessao_iniciada = True
-                        self.atualizar('conectado', f'Lendo comentários de @{self.perfil}.')
+                        self.atualizar('conectado', f'Lendo comentários e presentes de @{self.perfil}.')
 
                 async def on_comment(event, token=token, client=client):
                     if self.attempt_token is not token:
@@ -194,9 +240,25 @@ class TikTokBridge:
                                        nome=getattr(user, 'nickname', None) or getattr(user, 'display_id', None),
                                        msg_id=getattr(common, 'msg_id', None), room_id=client.room_id)
                     except Exception as error:
-                        # Falha de um evento não derruba o servidor do jogo.
                         with self.lock:
                             self.ultimo = f'Falha ao processar comentário ({type(error).__name__}).'
+
+                async def on_gift(event, token=token, client=client):
+                    if self.attempt_token is not token:
+                        return
+                    try:
+                        gift = event.gift
+                        user = event.user
+                        common = event.common
+                        gift_id = getattr(gift, 'id', None) or getattr(common, 'msg_id', None)
+                        nome_presente = getattr(gift, 'name', '') or getattr(gift, 'gift_name', '')
+                        self.processar_presente(gift_id=gift_id, nome_presente=nome_presente,
+                                                user_id=getattr(user, 'id', None),
+                                                nome=getattr(user, 'nickname', None) or getattr(user, 'display_id', None),
+                                                msg_id=getattr(common, 'msg_id', None), room_id=client.room_id)
+                    except Exception as error:
+                        with self.lock:
+                            self.ultimo = f'Falha ao processar presente ({type(error).__name__}).'
 
                 async def on_disconnect(event, token=token):
                     if self.attempt_token is token and not encerrada:
@@ -213,8 +275,11 @@ class TikTokBridge:
                 client.add_listener(Comment, on_comment)
                 client.add_listener(Disconnect, on_disconnect)
                 client.add_listener(LiveEnd, on_end)
+                if Gift is not None:
+                    client.add_listener(Gift, on_gift)
                 # Não processa o lote antigo recebido na abertura da conexão.
-                connection = await asyncio.wait_for(client.start(process_connect_events=False, fetch_gift_info=False), timeout=35)
+                fetch_gifts = Gift is not None
+                connection = await asyncio.wait_for(client.start(process_connect_events=False, fetch_gift_info=fetch_gifts), timeout=35)
                 await connection
                 if encerrada:
                     self.atualizar('offline', 'A live terminou. Abra outra transmissão e conecte novamente.')

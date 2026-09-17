@@ -66,6 +66,25 @@ class Jogo:
                 self.rex = novo
             return dict(self.snapshot(), aplicada=aplicada)
 
+    def interagir_presente(self, nome, presente_id, nome_presente, *, identidade=None, origem='tiktok', recebido=None):
+        if not isinstance(nome, str) or not 1 <= len(nome.strip()) <= 32 or any(ord(c) < 32 for c in nome):
+            raise ValueError('Informe um nome de 1 a 32 caracteres.')
+        if not isinstance(presente_id, str) or not presente_id:
+            raise ValueError('ID do presente inválido.')
+        if not isinstance(nome_presente, str) or not nome_presente:
+            raise ValueError('Nome do presente inválido.')
+        with self.lock:
+            novo = copy.deepcopy(self.rex)
+            agora = time.time()
+            efeitos, mensagem = novo.aplicar_presente(presente_id, nome_presente, agora)
+            if not efeitos:
+                return dict(self.snapshot(), aplicada=False, motivo=mensagem)
+            comando = f'presente:{nome_presente}'
+            aplicada = self.banco.salvar(novo, (nome.strip(), mensagem, agora), identidade=identidade, origem=origem, recebido=recebido, comando=comando, efeitos=efeitos)
+            if aplicada:
+                self.rex = novo
+            return dict(self.snapshot(), aplicada=aplicada)
+
 
 def criar_servidor(jogo, porta=PORT, tiktok=None):
     from tiktok_live import TikTokBridge

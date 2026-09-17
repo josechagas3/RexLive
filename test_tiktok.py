@@ -15,6 +15,7 @@ from tiktok_live import TikTokBridge, interpretar_comentario, normalizar_perfil,
 
 
 EVENTS = ('connect', 'comment', 'disconnect', 'end')
+EVENTS_WITH_GIFT = ('connect', 'comment', 'disconnect', 'end', 'gift')
 
 
 class UserOfflineError(Exception):
@@ -23,10 +24,11 @@ class UserOfflineError(Exception):
 
 class FakeClient:
     """Transporte local injetado apenas nos testes; nunca acessa a rede."""
-    def __init__(self, event=None, mode='connected'):
+    def __init__(self, event=None, mode='connected', gift_event=None):
         self.handlers = {}
         self.room_id = 500
         self.event = event
+        self.gift_event = gift_event
         self.mode = mode
         self.closed = False
         self.ready = threading.Event()
@@ -46,6 +48,8 @@ class FakeClient:
             await self.handlers['connect'](None)
             if self.event:
                 await self.handlers['comment'](self.event)
+            if self.gift_event:
+                await self.handlers['gift'](self.gift_event)
             if self.mode == 'ended':
                 await self.handlers['end'](None)
                 await self.handlers['disconnect'](None)
@@ -90,6 +94,11 @@ class TikTokTest(unittest.TestCase):
         data = dict(texto='carinho', user_id=1, nome='Ana', msg_id=1, room_id=500)
         data.update(overrides)
         return self.bridge.processar(**data)
+
+    def send_presente(self, **overrides):
+        data = dict(gift_id='gift1', nome_presente='rosa', user_id=1, nome='Ana', msg_id=1, room_id=500)
+        data.update(overrides)
+        return self.bridge.processar_presente(**data)
 
     def test_comandos_exatos_e_perfil(self):
         for text in (' água ', 'ÁGUA', '!agua'):
@@ -237,6 +246,68 @@ class TikTokTest(unittest.TestCase):
             self.assertTrue(post('/api/acao', {'nome':'Teste','comando':'comida'})['aplicada'])
         finally:
             server.shutdown(); server.server_close(); worker.join()
+
+    def test_presente_aplica_efeitos_e_registra_evento(self):
+        self.jogo.rex.felicidade = 90
+        self.jogo.banco.salvar(self.jogo.rex)
+        self.assertTrue(self.send_presente(nome_presente='rosa'))
+        self.assertEqual(self.jogo.rex.felicidade, 100)
+        self.assertEqual(self.jogo.rex.experiencia, 0)
+        eventos = self.jogo.snapshot()['eventos']
+        self.assertEqual(len(eventos), 1)
+        self.assertEqual(eventos[0]['comando'], 'presente:rosa')
+        self.assertEqual(eventos[0]['efeitos'], {'felicidade': 10.0})
+        self.assertEqual(eventos[0]['origem'], 'tiktok')
+
+    def test_presente_cooldown_por_usuario(self):
+        self.jogo.rex.felicidade = 90
+        self.jogo.rex.energia = 90
+        self.jogo.banco.salvar(self.jogo.rex)
+        self.assertTrue(self.send_presente(nome_presente='rosa', gift_id='g1'))
+        self.assertFalse(self.send_presente(nome_presente='cafe', gift_id='g2'))
+        self.now += 5
+        self.assertTrue(self.send_presente(nome_presente='cafe', gift_id='g3'))
+        self.assertEqual(self.jogo.rex.felicidade, 100)
+        self.assertEqual(self.jogo.rex.energia, 100)
+
+    def test_presente_duplicado_gift_id_ignorado(self):
+        self.jogo.rex.felicidade = 90
+        self.jogo.banco.salvar(self.jogo.rex)
+        self.assertTrue(self.send_presente(nome_presente='rosa', gift_id='g1'))
+        self.assertFalse(self.send_presente(nome_presente='rosa', gift_id='g1'))
+        self.assertEqual(self.jogo.rex.felicidade, 100)
+
+    def test_presente_e_comando_independentes(self):
+        self.jogo.rex.felicidade = 80
+        self.jogo.banco.salvar(self.jogo.rex)
+        self.assertTrue(self.send(texto='carinho'))
+        self.assertTrue(self.send_presente(nome_presente='rosa', gift_id='g1'))
+        self.assertEqual(self.jogo.rex.experiencia, 10)
+        self.assertEqual(self.jogo.rex.felicidade, 100)
+
+    def test_presente_desconhecido_ignorado(self):
+        self.jogo.rex.felicidade = 90
+        self.jogo.banco.salvar(self.jogo.rex)
+        self.assertFalse(self.send_presente(nome_presente='diamante', gift_id='g1'))
+        self.assertEqual(self.jogo.rex.felicidade, 90)
+        self.assertEqual(self.bridge.snapshot()['ignorados'], 1)
+
+    def test_presente_offline_ignorado(self):
+        self.jogo.rex.felicidade = 90
+        self.jogo.banco.salvar(self.jogo.rex)
+        self.bridge.desconectar()
+        self.assertFalse(self.send_presente(nome_presente='rosa', gift_id='g1'))
+        self.assertEqual(self.jogo.rex.felicidade, 90)
+
+    def test_presente_nao_da_xp_nao_acorda_nao_feliz_ate(self):
+        self.jogo.rex.dormindo = True
+        self.jogo.rex.energia = 50
+        self.jogo.banco.salvar(self.jogo.rex)
+        self.assertTrue(self.send_presente(nome_presente='cafe', gift_id='g1'))
+        self.assertTrue(self.jogo.rex.dormindo)
+        self.assertEqual(self.jogo.rex.experiencia, 0)
+        self.assertEqual(self.jogo.rex.feliz_ate, 0)
+        self.assertEqual(self.jogo.rex.energia, 60)
 
 
 if __name__ == '__main__':

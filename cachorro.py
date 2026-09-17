@@ -1,6 +1,7 @@
 """Regras puras do jogo, independentes da interface e do banco."""
 import unicodedata
 from dataclasses import dataclass, asdict
+from presentes import efeitos_presente
 
 
 def comando_normalizado(value):
@@ -98,6 +99,21 @@ class Cachorro:
         if agora < self.feliz_ate:
             return 'feliz'
         return 'normal'
+
+    def aplicar_presente(self, presente_id: str, nome_presente: str, agora: float):
+        efeitos = efeitos_presente(nome_presente)
+        if not efeitos:
+            return {}, f'Presente "{nome_presente}" não reconhecido.'
+        anterior = {k: getattr(self, k) for k in efeitos}
+        for k, v in efeitos.items():
+            setattr(self, k, getattr(self, k) + v)
+        self.limitar()
+        aplicados = {k: round(getattr(self, k) - anterior[k], 1) for k in efeitos}
+        msg = f'Rex recebeu {nome_presente}!'
+        if aplicados:
+            detalhes = ', '.join(f'{k}{v:+.1f}' for k, v in aplicados.items())
+            msg += f' ({detalhes})'
+        return aplicados, msg
 
     def publico(self, agora):
         data = asdict(self)
