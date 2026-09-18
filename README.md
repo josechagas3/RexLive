@@ -1,6 +1,6 @@
 # Rex Live 🐾
 
-Fases 1 a 3: cachorro virtual, tela vertical e integração de leitura de comentários TikTok. Python 3.10+, SQLite e HTML/CSS/JavaScript. O simulador funciona sem dependências externas; a conexão real usa TikTokLive 7.0.1.
+v0.4: cachorro virtual, tela vertical e leitura de comentários e presentes TikTok. Python 3.10+, SQLite e HTML/CSS/JavaScript. O simulador funciona sem dependências externas; a conexão real usa TikTokLive 7.0.1.
 
 ## Iniciar no Windows
 
@@ -23,7 +23,7 @@ Se a porta estiver ocupada: `python app.py --port 8766` e abra a mesma porta no 
 
 - Cachorro vetorial original, animado, com estados normal, fome, feliz, dormindo, comemorando e triste.
 - Saciedade (atributo `fome`), vida, felicidade e energia entre 0 e 100.
-- Cinco comandos simulados, XP e níveis; 100 XP por nível.
+- Seis comandos simulados, XP e níveis; 100 XP por nível.
 - SQLite com estado, ranking local e os últimos 100 cuidados.
 - Tela adaptável e modo de captura em **http://127.0.0.1:8765/?captura=1**.
 - Atualização da interface a cada segundo; simulação a cada dois segundos.
@@ -110,7 +110,9 @@ RexLive/
   cachorro.py     Regras e emoções
   banco.py        Persistência transacional
   config.py       Caminhos e porta padrão
-  tiktok_live.py  Leitura de comentários e controle de conexão
+  tiktok_live.py  Leitura de comentários, presentes e controle de conexão
+  presentes.py    Mapeamento e aplicação de efeitos de presentes
+  test_presentes.py Testes locais de presentes, combos e persistência
   iniciar.bat     Iniciador para Windows
   instalar_tiktok.bat Prepara o ambiente isolado e instala a integração
   requirements-tiktok.txt Versão da biblioteca
@@ -133,24 +135,19 @@ O desenho está em SVG dentro do HTML; PNGs e uma pasta de imagens não são nec
 ## Testar
 
 ```console
-.venv\Scripts\python.exe -m unittest -v test_rex test_tiktok test_live_rules
+.venv\Scripts\python.exe -m unittest -v test_rex test_tiktok test_live_rules test_presentes
 node --test test_live_events.cjs
 ```
 
-São 35 testes Python e 8 JavaScript. Usam bancos temporários e transporte simulado, sem acessar o TikTok ou alterar os dados reais. Cobrem regras do jogo, persistência, migração do banco antigo, API, identificação, intervalo entre cuidados, duplicatas após reiniciar, cancelamento, fim de live e tentativas limitadas. Dois testes verificam o cliente e o formato de evento da biblioteca instalada. Os novos testes verificam sono automático, despertar, ganho real dos cuidados e os limites de tempo dos avisos. Os testes JavaScript verificam a fila e os textos de apresentação. Node.js é necessário apenas para os testes JavaScript.
+São 49 testes Python e 11 JavaScript. Os 60 passaram nesta revisão, sem testes ignorados, com TikTokLive instalado. Usam bancos temporários e transporte local, sem acessar uma live ou alterar seus dados. Cobrem comentários, presentes, combos, deduplicação persistente, migração, rollback, concorrência, sono, XP, API e fila visual. Sem TikTokLive, quatro testes específicos da biblioteca são ignorados. Node.js é necessário somente para os testes JavaScript.
 
 Compatibilidade: o adaptador assíncrono corrige o fechamento do cliente no TikTokLive 7.0.1, evitando executar um segundo loop dentro do loop ativo. Antes de atualizar a dependência, rode os testes e valide uma live de teste.
 
 Para fazer backup, encerre o servidor e copie `dados/rex.db`. O servidor só escuta em 127.0.0.1. Não exponha esta versão diretamente à internet.
 
-## Próximas etapas
+## Próxima etapa
 
-Validar a Fase 3 com a live de @terra.updatess aberta e conferir o enquadramento no software de transmissão. Depois iniciar a Fase 4: presentes, evolução especial, itens e temporadas. Presentes ainda não estão implementados.
-
-## Validação desta revisão
-
-43 testes automatizados passaram. A conferência visual desta reformulação ficou pendente: o controle do navegador foi interrompido por não conseguir identificar o endereço com segurança. A leitura de comentários de uma live real também continua pendente, pois a live não estava aberta.
-
+v0.5: alertas e animações específicos de presentes, ranking visual separado e últimos apoiadores. A captura e os comentários reais já foram validados pelo criador; os presentes desta revisão ainda precisam de validação em live real.
 
 ## v0.3 — Evento de comida
 
@@ -162,12 +159,36 @@ Validação local: 35 testes Python e 11 JavaScript passaram; o navegador aprese
 
 Roteiro da próxima live: enviar `!comida`, conferir nome e ganho, ouvir os dois sons curtos, enviar cuidados de pessoas diferentes e conferir ordem/ranking. Testar também `!dormir` seguido de `!comida`: Rex deve continuar dormindo. Conferir `!agua`, `!brincar`, `!carinho` e `!acordar`.
 
-O ambiente de desenvolvimento bloqueou gravações em `.git/objects`, mesmo após concessão de acesso. O backup `backups/v0.2.bundle` conserva o histórico anterior; `backups/v0.3-eventos.patch` conserva as alterações desta etapa. Tags e commit ainda precisam ser registrados pelo proprietário no terminal:
+## v0.4 — Presentes TikTok
+
+- `Rose`: +5 de saciedade por unidade.
+- `Heart Me`: +10 de felicidade por unidade.
+- `Coffee`: +20 de energia por unidade.
+- `Lion`: registra evento especial; não evolui o Rex nem inventa aumento de atributo.
+
+O nome recebido é comparado sem distinguir maiúsculas/minúsculas. Presentes desconhecidos são ignorados. Quantidades inteiras de 1 a 10.000 são aceitas. Os nomes/variantes disponíveis precisam ser conferidos na live real.
+
+Presentes não concedem XP, não acordam Rex nem ativam os temporizadores de felicidade/comemoração. A expressão normal continua derivada dos atributos e do sono. Atributos permanecem entre 0 e 100; os deltas efetivos ficam registrados.
+
+Cada unidade dá **10 pontos de apoio**, independentemente do tipo. Esses pontos são do ranking de presentes, não XP ou valor monetário. `valor` no banco representa o efeito nominal total do mapeamento, não moedas/diamantes.
+
+`TIKTOK_PRESENTE_COOLDOWN = 1` define um segundo entre aplicações de efeitos por apoiador, independente dos comentários. Durante esse intervalo, presentes válidos continuam registrados, pontuados e enviados ao histórico, mas não alteram atributos (`efeito_aplicado=false`). O combo aplica sua quantidade final de uma vez e conta somente ao terminar; retransmissões são deduplicadas por sala/grupo/usuário/presente ou por mensagem quando não há grupo. A deduplicação de presentes persiste no SQLite após reinícios.
+
+A tabela `presentes` armazena identificador, apoiador, presente, quantidade, efeito nominal e real, pontos, data e chave única. Salvamento do Rex, presente e evento ocorre na mesma transação. A migração é aditiva e preserva comentários/ranking antigos.
+
+`GET /api/estado` mantém `ranking` de comentários e acrescenta `ranking_presentes` e `presentes` (100 mais recentes). Eventos de presentes participam da fila existente e incluem `tipo="presente"` e dados estruturados em `presente`. O ranking da captura ainda mostra comentários; o ranking visual de presentes e as animações por tipo são da v0.5. O painel já informa a quantidade de envios registrados e a fila mostra um agradecimento genérico.
+
+Para carregar esta versão, encerre e inicie novamente o servidor **entre transmissões**, usando a mesma porta, e recarregue painel/captura. O banco existente será migrado na inicialização. Esta implementação não reiniciou sua live nem alterou seu banco de produção.
+
+Validação real pendente: confirmar os presentes disponíveis, enviar uma Rosa e um combo, conferir um único registro/pontuação, testar Coração e Café e observar que não há XP/despertar. Para o Leão, a lógica foi testada localmente; sua recepção real só será confirmada quando ocorrer um envio. Não é necessário comprar presentes para executar os testes automatizados.
+
+Referência do tratamento de combos: https://github.com/isaackogan/TikTokLive/blob/master/examples/gifts.py (também conferido com a biblioteca instalada).
+
+Backup anterior: `backups/antes-v04.bundle` (histórico Git), `backups/antes-v04.patch` (alterações locais anteriores) e `backups/presentes-antes-v04.py` (mapeamento original). Backups locais não entram nos commits.
+
+O commit desta revisão não pôde ser criado: o ambiente bloqueou `.git/index.lock`. Após revisar, registre no seu terminal:
 
 ```powershell
-git tag -a v0.2 fa82a4e -m "Primeiro teste real TikTok Live funcionando"
-git add .gitignore README.md interface/index.html interface/live-events.js interface/script.js interface/style.css test_live_events.cjs
-git commit -m "v0.3: evento visual de comida com som opcional"
+git add .gitignore README.md app.py banco.py config.py presentes.py tiktok_live.py test_presentes.py interface/index.html interface/script.js
+git commit -m "v0.4: integra presentes TikTok com persistência e pontuação separada"
 ```
-
-Após validar a próxima live, registrar `git tag -a v0.3 -m "Eventos visuais e animações validados em live"`.

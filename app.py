@@ -11,6 +11,7 @@ from pathlib import Path
 from banco import Banco
 from cachorro import comando_normalizado
 from momentos import MomentosLive
+from presentes import aplicar_efeito_presente, aplicar_no_rex
 from config import BASE_DIR, DB_PATH, HOST, PORT, TICK_SECONDS
 
 
@@ -62,6 +63,28 @@ class Jogo:
             mensagem = novo.agir(comando, agora)
             efeitos = {key: round(getattr(novo, key) - getattr(self.rex, key), 1) for key in ('fome', 'vida', 'energia', 'felicidade')}
             aplicada = self.banco.salvar(novo, (nome.strip(), mensagem, agora), identidade=identidade, origem=origem, recebido=recebido, comando=comando, efeitos=efeitos)
+            if aplicada:
+                self.rex = novo
+            return dict(self.snapshot(), aplicada=aplicada)
+
+
+    def receber_presente(self, nome, presente, quantidade, *, identidade, recebido, aplicar=True):
+        if not isinstance(nome, str) or not 1 <= len(nome.strip()) <= 32 or any(ord(c) < 32 for c in nome):
+            raise ValueError('Nome do apoiador inválido.')
+        if not identidade or not recebido:
+            raise ValueError('Presente sem identificação.')
+        dados = aplicar_efeito_presente(presente, quantidade)
+        if dados is None:
+            raise ValueError('Presente não mapeado.')
+        with self.lock:
+            novo = copy.deepcopy(self.rex)
+            if aplicar:
+                aplicar_no_rex(novo, dados)
+            efeitos = {key: round(getattr(novo,key) - getattr(self.rex,key), 1)
+                       for key in ('fome','vida','energia','felicidade')}
+            aplicada = self.banco.salvar_presente(novo, chave=recebido, identidade=identidade,
+                nome=nome.strip(), presente=dados, quantidade=quantidade, efeitos=efeitos,
+                agora=time.time(), efeito_aplicado=aplicar)
             if aplicada:
                 self.rex = novo
             return dict(self.snapshot(), aplicada=aplicada)

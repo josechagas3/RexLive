@@ -75,3 +75,42 @@ test('volume zero, suspensão e navegador sem áudio não impedem os eventos', a
   const unavailable=new RexEventSound(()=>{throw Error('indisponível')});
   assert.equal(await unavailable.enable(),false); assert.equal(unavailable.play('comida'),false);
 });
+const {giftPresentation, supporterLine} = require('./interface/live-events.js');
+const giftEvent = (effect, delta=10) => ({id:1,tipo:'presente',nome:'João',presente:{nome:'Presente',efeito:effect,quantidade:1,efeito_aplicado:true},efeitos:{fome:delta,felicidade:delta,energia:delta}});
+test('cada presente tem tema, partículas e duração própria sem XP', () => {
+  for (const [effect,action] of [['saciedade','gift-rose'],['felicidade','gift-heart'],['energia','gift-coffee'],['especial','gift-lion']]) {
+    const view=carePresentation(giftEvent(effect));
+    assert.equal(view.action,action); assert.equal(view.name,'João'); assert.equal(view.gift,true);
+    assert.ok(view.particles.length>=3); assert.doesNotMatch(view.detail,/XP/);
+    assert.equal(view.duration,effect==='especial'?7500:5000);
+  }
+});
+test('presentes mostram ganho efetivo, limite cheio e cooldown sem promessas falsas', () => {
+  assert.match(giftPresentation(giftEvent('saciedade',2)).detail,/\+2 saciedade/);
+  assert.doesNotMatch(giftPresentation(giftEvent('saciedade',2)).detail,/felicidade/);
+  assert.match(giftPresentation(giftEvent('energia',0)).detail,/abastecido/);
+  const event=giftEvent('energia'); event.presente.efeito_aplicado=false;
+  assert.match(giftPresentation(event).detail,/Apoio registrado/);
+  assert.doesNotMatch(giftPresentation(event).detail,/\+|XP/);
+});
+test('combo mantém quantidade e presente desconhecido tem agradecimento seguro', () => {
+  const event=giftEvent('saciedade'); event.presente.quantidade=5; event.presente.nome='Rosa 🌹';
+  assert.match(giftPresentation(event).title,/5 × Rosa/);
+  assert.equal(giftPresentation({nome:'Ana',presente:{}}).action,'gift-other');
+  assert.equal(supporterLine({nome:'Ana',quantidade:3,presente:'Rosa 🌹'}),'Ana enviou 3 × Rosa 🌹');
+});
+test('fila mista mantém ordem e não repete presentes após consulta ou reabertura', () => {
+  const q=new LiveEventQueue();q.ingest([]);
+  const gifts=[{...giftEvent('saciedade'),id:2}, {...event(1),comando:'comida'}, {...giftEvent('especial'),id:3}];
+  q.ingest(gifts);q.ingest(gifts);
+  assert.deepEqual([q.next().id,q.next().id,q.next().id],[1,2,3]); assert.equal(q.next(),null);
+  const reopened=new LiveEventQueue(); reopened.ingest(gifts); assert.equal(reopened.next(),null);
+});
+test('som dos quatro presentes respeita ativação e silêncio', async () => {
+  const ctx=audioMock(), sound=new RexEventSound(()=>ctx);
+  for (const action of ['gift-rose','gift-heart','gift-coffee','gift-lion']) assert.equal(sound.play(action),false);
+  await sound.enable();
+  for (const action of ['gift-rose','gift-heart','gift-coffee','gift-lion']) assert.equal(sound.play(action),true);
+  assert.equal(ctx.nodes.length,15);
+  sound.mute(); assert.equal(sound.play('gift-lion'),false);
+});

@@ -8,3 +8,6 @@ TICK_SECONDS = 2
 XP_PER_LEVEL = 100
 TIKTOK_PERFIL = 'terra.updatess'
 TIKTOK_COOLDOWN = 5
+
+# Limita efeitos; todos os presentes válidos continuam registrados e pontuados.
+TIKTOK_PRESENTE_COOLDOWN = 1

@@ -15,7 +15,8 @@ const phrases = {normal:'Quem vai cuidar de mim? 🐾',fome:'Uma ajudinha? Digit
 const queue = new LiveEventQueue();
 let busy = false, connected = false, alertActive = false, alertTimer;
 let level = null, celebrationTimer, revision = 0, renderedRevision = 0;
-let rankingKey = '', eventsKey = '';
+let rankingKey = '', eventsKey = '', supportersKey = '';
+let giftPreview = false;
 let tiktokBusy = false, tiktokActive = false, tiktokAvailable = false, perfilLoaded = false;
 let currentMoment = null, previewBusy = false;
 try { $('nome').value = localStorage.getItem('rex-cuidador') || 'João'; } catch {}
@@ -42,31 +43,36 @@ function connection(ok) {
   updateMomentVisibility();
   if (ok) showNextAlert();
 }
-function burst(action) {
+function burst(action, symbols) {
   $('particles').replaceChildren();
+  $('particles').dataset.theme = action || '';
   if (document.body.classList.contains('reduced-motion') || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   for (let i = 0; i < 12; i++) {
-    const piece = document.createElement('span'); piece.textContent = action === 'comida' ? ['🍖','✨','❤️'][i % 3] : (i % 3 ? '✦' : '♥');
+    const piece = document.createElement('span'); piece.textContent = symbols ? symbols[i % symbols.length] : action === 'comida' ? ['🍖','✨','❤️'][i % 3] : (i % 3 ? '✦' : '♥');
     piece.style.setProperty('--x', `${8 + i * 7.5}%`);
     piece.style.setProperty('--delay', `${i * .045}s`);
     $('particles').append(piece);
   }
 }
-function showNextAlert() {
+function showNextAlert(previewEvent = null) {
   if (alertActive || !connected) return;
-  const event = queue.next();
+  const event = previewEvent || queue.next();
   if (!event) return;
   alertActive = true;
+  giftPreview = Boolean(previewEvent);
   const presentation = carePresentation(event);
   $('alert-name').replaceChildren();
   if (presentation.highlight) {
     const name = document.createElement('span'); name.className = 'viewer-name'; name.textContent = presentation.name;
-    $('alert-name').append('🐶 ', name, ` ${presentation.verb}`);
+    $('alert-name').append(presentation.gift ? '' : '🐶 ', name, ` ${presentation.verb}`);
   } else $('alert-name').textContent = presentation.title;
   $('care-alert').dataset.action = presentation.action;
+  $('alert-label').textContent = presentation.label || '';
+  $('alert-label').hidden = !presentation.label;
+  $('care-alert').dataset.preview = String(giftPreview);
   $('alert-message').textContent = presentation.gain || presentation.detail;
   $('alert-icon').textContent = presentation.icon;
-  $('alert-bark').textContent = presentation.bark;
+  $('alert-bark').textContent = presentation.gift && $('rex').classList.contains('dormindo') ? 'Carinho até nos sonhos 💤' : presentation.bark;
   $('care-alert').dataset.source = event.origem || '';
   document.querySelector('.habitat').dataset.reaction = presentation.action;
   $('reaction-prop').textContent = presentation.icon;
@@ -76,7 +82,7 @@ function showNextAlert() {
   void $('care-alert').offsetWidth;
   $('care-alert').hidden = false;
   updateMomentVisibility();
-  burst(presentation.action);
+  burst(presentation.action, presentation.particles);
   eventSound.play(presentation.action);
   clearTimeout(alertTimer);
   alertTimer = setTimeout(() => {
@@ -84,23 +90,37 @@ function showNextAlert() {
     $('reaction-prop').hidden = true;
     delete document.querySelector('.habitat').dataset.reaction;
     alertActive = false;
+    giftPreview = false;
     updateMomentVisibility();
     showNextAlert();
-  }, queue.pending.length > 3 ? 2200 : 4200);
+  }, presentation.duration || (queue.pending.length > 3 ? 2200 : 4200));
 }
-function renderRanking(ranking) {
-  const key = JSON.stringify(ranking);
+function renderRanking(ranking, gifts = []) {
+  const key = JSON.stringify([ranking, gifts]);
   if (key === rankingKey) return;
-  rankingKey = key; $('ranking').replaceChildren();
-  ranking.forEach((item, i) => {
-    const li = document.createElement('li');
-    const name = item.nome + (item.origem === 'simulador' ? ' (teste)' : ' · TikTok');
-    for (const [tag, cls, text] of [['span','rank',['🥇','🥈','🥉'][i] || String(i+1).padStart(2,'0')],['span','avatar',Array.from(item.nome)[0].toUpperCase()],['span','caregiver-name',name],['strong','',`${item.pontos} XP`]]) {
-      const el = document.createElement(tag); el.className = cls; el.textContent = text; li.append(el);
-    }
-    $('ranking').append(li);
-  });
-  if (!ranking.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'O primeiro cuidado pode ser seu. 💛'; $('ranking').append(li); }
+  rankingKey = key;
+  for (const [id, rows] of [['ranking',ranking], ['gift-ranking',gifts]]) {
+    const list = $(id); list.replaceChildren();
+    rows.slice(0, capture ? 3 : 5).forEach((item, i) => {
+      const li = document.createElement('li');
+      const name = item.nome + (item.origem === 'simulador' ? ' (teste)' : '');
+      for (const [tag, cls, text] of [['span','rank',['🥇','🥈','🥉'][i] || String(i+1)],['span','caregiver-name',name],['strong','',`${item.pontos} pontos`]]) {
+        const el = document.createElement(tag); el.className = cls; el.textContent = text; el.title = text; li.append(el);
+      }
+      list.append(li);
+    });
+    if (!rows.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'Seu apoio pode ser o primeiro 💛'; list.append(li); }
+  }
+}
+function renderSupporters(items = []) {
+  const recent = items.slice(0,3);
+  const key = JSON.stringify(recent);
+  if (key === supportersKey) return;
+  supportersKey = key; $('supporters').replaceChildren();
+  for (const item of recent) {
+    const row = document.createElement('li'); row.textContent = supporterLine(item); row.title = row.textContent; $('supporters').append(row);
+  }
+  if (!recent.length) { const row = document.createElement('li'); row.textContent = 'Os próximos presentes aparecem aqui ✨'; $('supporters').append(row); }
 }
 function render(data, requestRevision) {
   // Um GET iniciado antes de um clique não pode desfazer sua atualização.
@@ -112,6 +132,7 @@ function render(data, requestRevision) {
   renderMoment();
   $('nivel').textContent = `NÍVEL ${r.nivel}`;
   $('rex').className = `dog ${r.estado}`;
+  if (alertActive && $('care-alert').dataset.action.startsWith('gift-')) $('alert-bark').textContent = r.dormindo ? 'Carinho até nos sonhos 💤' : 'AU AU! ❤️';
   $('rex').setAttribute('aria-label', `Rex: ${moods[r.estado]}`);
   $('humor').textContent = moods[r.estado];
   $('fala').textContent = phrases[r.estado];
@@ -138,7 +159,8 @@ function render(data, requestRevision) {
   level = r.nivel;
   updateMomentVisibility();
   queue.ingest(data.eventos);
-  renderRanking(data.ranking);
+  renderRanking(data.ranking, data.ranking_presentes || []);
+  renderSupporters(data.presentes || []);
   const recent = data.eventos.slice(0, 3);
   const key = JSON.stringify(recent);
   if (key !== eventsKey) {
@@ -230,7 +252,7 @@ function renderTikTok(status) {
   $('tiktok-status').textContent = labels[status.estado] || status.estado;
   $('tiktok-status').dataset.state = status.estado;
   $('tiktok-message').textContent = status.mensagem;
-  $('tiktok-counts').textContent = `${status.recebidos} comentários · ${status.aplicados} cuidados · ${status.ignorados} ignorados`;
+  $('tiktok-counts').textContent = `${status.recebidos} comentários · ${status.aplicados} cuidados · ${status.ignorados} ignorados · ${status.presentes_aplicados || 0} envios de presentes registrados`;
   $('tiktok-last').textContent = status.ultimo ? `Último resultado: ${status.ultimo}` : '';
   const live = status.estado === 'conectado';
   $('live-badge').textContent = live ? 'COMENTÁRIOS AO VIVO' : status.ativo ? 'CONECTANDO AO TIKTOK' : 'MODO SIMULADOR';
@@ -278,4 +300,17 @@ $('sound-volume').addEventListener('input', () => {
   eventSound.setVolume(Number($('sound-volume').value) / 100);
   try { localStorage.setItem('rex-volume', String(eventSound.volume)); } catch {}
 });
+document.querySelectorAll('[data-gift-preview]').forEach(button => button.addEventListener('click', () => {
+  if (!connected || alertActive || queue.pending.length || queue.grouped) {
+    $('gift-preview-feedback').textContent = 'Aguarde a conexão e os agradecimentos terminarem.'; return;
+  }
+  const effect = button.dataset.giftPreview;
+  const theme = GIFT_THEMES[effect];
+  const labels = {saciedade:'Rosa 🌹',felicidade:'Coração ❤️',energia:'Café ☕',especial:'Leão 🦁'};
+  showNextAlert({tipo:'presente', nome:'Cuidador de teste', origem:'previa',
+    presente:{nome:labels[effect], efeito:effect, quantidade:1, efeito_aplicado:true},
+    efeitos:theme.attribute ? {[theme.attribute]:effect === 'energia' ? 20 : effect === 'felicidade' ? 10 : 5} : {}});
+  button.closest('details').open = false; button.blur();
+  $('gift-preview-feedback').textContent = 'Prévia somente nesta janela. Banco, atributos e rankings permanecem iguais.';
+}));
 refresh();

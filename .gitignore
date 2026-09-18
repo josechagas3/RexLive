@@ -5,3 +5,5 @@ dados/*.db-*
 
 backups/*.bundle
 backups/*.patch
+
+/backups/
